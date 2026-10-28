@@ -1,0 +1,58 @@
+name: Vérification automatique (Portail scolaire)
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  tests-et-build:
+    name: Tests PostgreSQL, Prisma et Compilation React
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_ephemeral_db_password
+          POSTGRES_DB: portail_scolaire
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Récupération du code source
+        uses: actions/checkout@v4
+
+      - name: Installation de Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Installation des dépendances
+        run: npm ci
+
+      - name: Génération du client Prisma et création des tables SQL
+        env:
+          DATABASE_URL: postgresql://postgres:ci_ephemeral_db_password@localhost:5432/portail_scolaire?schema=public
+        run: |
+          npx prisma generate
+          npx prisma migrate deploy
+
+      - name: Exécution des tests unitaires et d'intégration
+        env:
+          DATABASE_URL: postgresql://postgres:ci_ephemeral_db_password@localhost:5432/portail_scolaire?schema=public
+          NODE_ENV: development
+        run: |
+          export SESSION_SECRET="$(node -e "console.log(require('crypto').randomBytes(48).toString('hex'))")"
+          npm test
+
+      - name: Compilation de production (React + Vite)
+        run: npm run build

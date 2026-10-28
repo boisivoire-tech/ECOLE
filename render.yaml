@@ -1,0 +1,26 @@
+# Configuration optionnelle de déploiement cloud depuis GitHub (ex. Render.com)
+# Aucun mot de passe ni secret n'est écrit dans ce fichier.
+databases:
+  - name: portail-scolaire-db
+    databaseName: portail_scolaire
+    user: portail_scolaire_user
+    plan: free
+
+services:
+  - type: web
+    name: portail-scolaire
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_DURATION_HOURS
+        value: "8"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: portail-scolaire-db
+          property: connectionString
