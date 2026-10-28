@@ -121,3 +121,45 @@ export function hashRateKey(value) {
     .update(String(value || "").trim().toLowerCase())
     .digest("hex");
 }
+
+/**
+ * Signe un identifiant de session avec HMAC-SHA256 (format compatible express-session : s:<sid>.<sig>).
+ */
+export function signSessionId(sid, secret) {
+  if (!sid || !secret) return null;
+  const sig = crypto
+    .createHmac("sha256", String(secret))
+    .update(String(sid))
+    .digest("base64")
+    .replace(/=+$/, "");
+  return `s:${sid}.${sig}`;
+}
+
+/**
+ * Vérifie en temps constant la signature HMAC d'un jeton de session s:<sid>.<sig>.
+ */
+export function verifySignedSessionToken(signedToken, secret) {
+  if (
+    !signedToken ||
+    typeof signedToken !== "string" ||
+    !signedToken.startsWith("s:") ||
+    !secret
+  ) {
+    return false;
+  }
+  const raw = signedToken.slice(2);
+  const dotIdx = raw.lastIndexOf(".");
+  if (dotIdx <= 0) {
+    return false;
+  }
+  const sid = raw.slice(0, dotIdx);
+  const expected = signSessionId(sid, secret);
+  if (!expected) return false;
+
+  const bufA = Buffer.from(signedToken, "utf8");
+  const bufB = Buffer.from(expected, "utf8");
+  if (bufA.length !== bufB.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}

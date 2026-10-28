@@ -11,19 +11,19 @@ export function csrfProtection(req, res, next) {
     return res.status(500).json({ error: "Session indisponible." });
   }
 
-  if (!req.session.csrfToken) {
-    req.session.csrfToken = generateCsrfToken();
-  }
-
   const safeMethods = ["GET", "HEAD", "OPTIONS"];
   if (safeMethods.includes(req.method)) {
+    if (!req.session.csrfToken) {
+      req.session.csrfToken = generateCsrfToken();
+    }
     return next();
   }
 
   const provided = req.headers["x-csrf-token"];
-  if (!verifyCsrfToken(provided, req.session.csrfToken)) {
+  if (!req.session.csrfToken || !verifyCsrfToken(provided, req.session.csrfToken)) {
     return res.status(403).json({
       error: "Jeton de sécurité expiré ou invalide. Veuillez actualiser la page et réessayer.",
+      code: "CSRF_INVALID",
     });
   }
 

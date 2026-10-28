@@ -136,7 +136,24 @@ cd C:\projets\ECOLE
 npm install
 ```
 
-### Étape 5.2 — Créer votre fichier `.env` et générer un secret de session
+### Étape 5.2 (Recommandé pour débutant) — Assistant d'installation automatique en 1 commande
+
+Toujours dans `C:\projets\ECOLE`, lancez l'assistant automatique :
+
+```powershell
+npm run setup
+```
+
+Cet assistant :
+- vous demande votre mot de passe PostgreSQL en français ;
+- encode automatiquement les caractères spéciaux éventuels (`@`, `#`, `!`...) ;
+- crée automatiquement la base `portail_scolaire` si elle n'existe pas encore ;
+- génère un `SESSION_SECRET` aléatoire fort et écrit `.env` proprement en UTF-8 (sans erreur `.env.txt` du Bloc-notes) ;
+- lance automatiquement `npx prisma generate`, `npx prisma migrate deploy` et vous propose de charger les données fictives de démonstration.
+
+*(Si vous avez utilisé `npm run setup`, passez directement à la section 7 : `npm run dev`.)*
+
+### Étape 5.2 (Alternative manuelle) — Créer votre fichier `.env` à la main
 
 Toujours dans `C:\projets\ECOLE` :
 
@@ -151,7 +168,7 @@ La deuxième commande affiche une longue suite aléatoire de lettres et de chiff
 2. Dans `SESSION_SECRET`, collez la longue chaîne aléatoire générée à l'instant.
 3. Enregistrez et fermez le Bloc-notes (`Ctrl + S`).
 
-### Étape 5.3 — Créer les tables dans PostgreSQL avec Prisma
+### Étape 5.3 (Alternative manuelle) — Créer les tables dans PostgreSQL avec Prisma
 
 Toujours dans `C:\projets\ECOLE` :
 
