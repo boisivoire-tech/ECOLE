@@ -1,0 +1,242 @@
+// ==============================================================================
+// Schéma Prisma — Portail scolaire (PostgreSQL)
+// ==============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  TEACHER
+  PARENT
+}
+
+model SchoolSettings {
+  id           Int      @id @default(1)
+  schoolName   String   @default("Établissement Scolaire")
+  showAbsences Boolean  @default(true)
+  showRemarks  Boolean  @default(true)
+  updatedAt    DateTime @updatedAt
+}
+
+model User {
+  id             Int             @id @default(autoincrement())
+  role           Role
+  email          String?         @unique
+  passwordHash   String?
+  firstName      String
+  lastName       String
+  phone          String?
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  teacherProfile TeacherProfile?
+  parentProfile  ParentProfile?
+}
+
+model TeacherProfile {
+  id             Int            @id @default(autoincrement())
+  userId         Int            @unique
+  specialty      String?
+  createdAt      DateTime       @default(now())
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  classSubjects  ClassSubject[]
+  gradesRecorded Grade[]
+}
+
+model ParentProfile {
+  id           Int                 @id @default(autoincrement())
+  userId       Int                 @unique
+  address      String?
+  createdAt    DateTime            @default(now())
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  studentLinks ParentStudentLink[]
+  otpCodes     ParentOtpCode[]
+}
+
+model SchoolYear {
+  id          Int          @id @default(autoincrement())
+  label       String       @unique
+  startDate   DateTime     @db.Date
+  endDate     DateTime     @db.Date
+  isCurrent   Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  terms       Term[]
+  classrooms  Classroom[]
+  enrollments Enrollment[]
+}
+
+model Term {
+  id             Int                 @id @default(autoincrement())
+  schoolYearId   Int
+  name           String
+  orderIndex     Int
+  isPublished    Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  schoolYear     SchoolYear          @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  grades         Grade[]
+  subjectRemarks SubjectTermRemark[]
+  termReports    StudentTermReport[]
+
+  @@unique([schoolYearId, orderIndex])
+  @@unique([schoolYearId, name])
+}
+
+model Classroom {
+  id            Int            @id @default(autoincrement())
+  schoolYearId  Int
+  name          String
+  level         String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  schoolYear    SchoolYear     @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  enrollments   Enrollment[]
+  classSubjects ClassSubject[]
+
+  @@unique([schoolYearId, name])
+}
+
+model Subject {
+  id            Int            @id @default(autoincrement())
+  code          String         @unique
+  name          String         @unique
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  classSubjects ClassSubject[]
+}
+
+model ClassSubject {
+  id             Int                 @id @default(autoincrement())
+  classroomId    Int
+  subjectId      Int
+  teacherId      Int?
+  coefficient    Int                 @default(1)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  classroom      Classroom           @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  subject        Subject             @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  teacher        TeacherProfile?     @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  grades         Grade[]
+  subjectRemarks SubjectTermRemark[]
+
+  @@unique([classroomId, subjectId])
+}
+
+model Student {
+  id             Int                 @id @default(autoincrement())
+  matricule      String              @unique
+  lastName       String
+  firstName      String
+  birthDate      DateTime            @db.Date
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  enrollments    Enrollment[]
+  parentLinks    ParentStudentLink[]
+  grades         Grade[]
+  subjectRemarks SubjectTermRemark[]
+  termReports    StudentTermReport[]
+}
+
+model Enrollment {
+  id           Int        @id @default(autoincrement())
+  studentId    Int
+  classroomId  Int
+  schoolYearId Int
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  student      Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classroom    Classroom  @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  schoolYear   SchoolYear @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, schoolYearId])
+}
+
+model ParentStudentLink {
+  id           Int           @id @default(autoincrement())
+  parentId     Int
+  studentId    Int
+  relationship String        @default("Parent")
+  createdAt    DateTime      @default(now())
+  parent       ParentProfile @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  student      Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([parentId, studentId])
+}
+
+model ParentOtpCode {
+  id        Int           @id @default(autoincrement())
+  parentId  Int
+  codeHash  String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+  parent    ParentProfile @relation(fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@index([parentId, usedAt, expiresAt])
+}
+
+model Grade {
+  id                  Int             @id @default(autoincrement())
+  studentId           Int
+  classSubjectId      Int
+  termId              Int
+  recordedByTeacherId Int?
+  title               String
+  value               Float
+  weight              Float           @default(1)
+  evaluatedAt         DateTime        @default(now()) @db.Date
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  student             Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classSubject        ClassSubject    @relation(fields: [classSubjectId], references: [id], onDelete: Cascade)
+  term                Term            @relation(fields: [termId], references: [id], onDelete: Cascade)
+  recordedByTeacher   TeacherProfile? @relation(fields: [recordedByTeacherId], references: [id], onDelete: SetNull)
+
+  @@unique([studentId, classSubjectId, termId, title])
+}
+
+model SubjectTermRemark {
+  id             Int          @id @default(autoincrement())
+  studentId      Int
+  classSubjectId Int
+  termId         Int
+  remark         String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  student        Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classSubject   ClassSubject @relation(fields: [classSubjectId], references: [id], onDelete: Cascade)
+  term           Term         @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, classSubjectId, termId])
+}
+
+model StudentTermReport {
+  id                  Int      @id @default(autoincrement())
+  studentId           Int
+  termId              Int
+  justifiedAbsences   Int      @default(0)
+  unjustifiedAbsences Int      @default(0)
+  lateCount           Int      @default(0)
+  generalRemark       String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  student             Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  term                Term     @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, termId])
+}
+
+model Session {
+  sid       String   @id
+  data      String
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}

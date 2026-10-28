@@ -1,0 +1,16 @@
+# Dépendances Node.js
+node_modules/
+
+# Fichiers de compilation Front-end
+dist/
+
+# Variables d'environnement locales (NE JAMAIS COMMITTER DE SECRETS)
+.env
+.env.local
+.env.*.local
+
+# Journaux et fichiers système
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
