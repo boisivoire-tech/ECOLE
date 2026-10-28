@@ -380,3 +380,140 @@ test("Administration : liaison parent obligatoire, nouvel OTP, visibilité absen
   assert.equal(fullLogText.includes(otpRes.data.code), false, "Aucun code OTP généré dans les logs");
   assert.equal(fullLogText.includes("DemoAdmin-2026!"), false, "Aucun mot de passe dans les logs");
 });
+
+test("Mode iframe sans cookies tiers : connexion Personnel + Parent 2 étapes via X-Session-Token signé", async () => {
+  ipAuthLimiter.buckets.clear();
+  accountAuthLimiter.buckets.clear();
+
+  class ZeroCookieIframeClient {
+    constructor() {
+      this.sessionToken = null;
+      this.csrfToken = null;
+    }
+
+    async request(path, { method = "GET", body, overrideSessionToken } = {}) {
+      const headers = { Accept: "application/json" };
+      const tokenToSend =
+        overrideSessionToken !== undefined ? overrideSessionToken : this.sessionToken;
+      if (tokenToSend) {
+        headers["X-Session-Token"] = tokenToSend;
+      }
+      if (body !== undefined) {
+        headers["Content-Type"] = "application/json";
+      }
+      if (!["GET", "HEAD"].includes(method) && this.csrfToken) {
+        headers["X-CSRF-Token"] = this.csrfToken;
+      }
+
+      // Aucune en-tête Cookie n'est envoyée (simule le blocage strict des cookies tiers en iframe)
+      const res = await fetch(`${baseUrl}${path}`, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+
+      const returnedToken = res.headers.get("x-session-token");
+      if (returnedToken === "none") {
+        this.sessionToken = null;
+      } else if (returnedToken) {
+        this.sessionToken = returnedToken;
+      }
+
+      const data = await res.json();
+      if (data?.csrfToken) {
+        this.csrfToken = data.csrfToken;
+      }
+      return { status: res.status, data, sessionHeader: returnedToken };
+    }
+  }
+
+  // 1. Connexion Enseignant sans aucun cookie + génération d'un code OTP par Admin sans cookie
+  const staffIframe = new ZeroCookieIframeClient();
+  const initSession = await staffIframe.request("/api/auth/session");
+  assert.equal(initSession.status, 200);
+  assert.ok(staffIframe.sessionToken?.startsWith("s:"));
+  assert.ok(staffIframe.csrfToken);
+
+  // Toute falsification du jeton signé X-Session-Token est immédiatement rejetée (403 CSRF_INVALID)
+  const forged = await staffIframe.request("/api/auth/staff/login", {
+    method: "POST",
+    overrideSessionToken: `${staffIframe.sessionToken}falsifie`,
+    body: {
+      email: "enseignant1.fictif@ecole-demo.local",
+      password: "DemoProf1-2026!",
+    },
+  });
+  assert.equal(forged.status, 403);
+  assert.equal(forged.data.code, "CSRF_INVALID");
+
+  // Connexion valide de l'enseignant sans cookie (avec rotation de session à la connexion)
+  const tokenBeforeLogin = staffIframe.sessionToken;
+  const teacherLogin = await staffIframe.request("/api/auth/staff/login", {
+    method: "POST",
+    body: {
+      email: "enseignant1.fictif@ecole-demo.local",
+      password: "DemoProf1-2026!",
+    },
+  });
+  assert.equal(teacherLogin.status, 200);
+  assert.notEqual(
+    staffIframe.sessionToken,
+    tokenBeforeLogin,
+    "L'identifiant de session doit être régénéré après connexion"
+  );
+
+  const teacherClasses = await staffIframe.request("/api/teacher/assignments");
+  assert.equal(teacherClasses.status, 200);
+  assert.equal(teacherClasses.data.assignments.length, 3);
+
+  const logoutRes = await staffIframe.request("/api/auth/logout", { method: "POST" });
+  assert.equal(logoutRes.status, 200);
+  assert.equal(logoutRes.sessionHeader, "none");
+  assert.equal(staffIframe.sessionToken, null);
+
+  // 2. Connexion Admin sans cookie pour générer un code OTP, puis Parent en 2 étapes sans cookie
+  const adminIframe = new ZeroCookieIframeClient();
+  await adminIframe.request("/api/auth/session");
+  const adminLogin = await adminIframe.request("/api/auth/staff/login", {
+    method: "POST",
+    body: {
+      email: "admin.fictif@ecole-demo.local",
+      password: "NouveauSecretAdmin-2026!",
+    },
+  });
+  assert.equal(adminLogin.status, 200);
+
+  const ov = await adminIframe.request("/api/admin/overview");
+  const yaoParent = ov.data.parents.find((p) => p.lastName === "Yao");
+  const freshOtp = await adminIframe.request(
+    `/api/admin/parents/${yaoParent.parentProfileId}/otp`,
+    { method: "POST", body: { validDays: 7 } }
+  );
+  assert.equal(freshOtp.status, 201);
+
+  const parentIframe = new ZeroCookieIframeClient();
+  await parentIframe.request("/api/auth/session");
+
+  const s1 = await parentIframe.request("/api/auth/parent/step1", {
+    method: "POST",
+    body: {
+      matricule: "ELV-DEMO-001",
+      lastName: "Yao",
+      birthDate: "2014-05-15",
+    },
+  });
+  assert.equal(s1.status, 200);
+  assert.equal(s1.data.step, "OTP_REQUIRED");
+
+  const s2 = await parentIframe.request("/api/auth/parent/step2", {
+    method: "POST",
+    body: { otpCode: freshOtp.data.code },
+  });
+  assert.equal(s2.status, 200);
+  assert.equal(s2.data.user.role, "PARENT");
+
+  const dash = await parentIframe.request("/api/parent/dashboard");
+  assert.equal(dash.status, 200);
+  assert.equal(dash.data.children.length, 2);
+});
+

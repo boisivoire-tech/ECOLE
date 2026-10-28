@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useState } from "react";
-import { apiRequest, setCsrfToken } from "./api/client.js";
+import { apiRequest, clearClientSession, setCsrfToken } from "./api/client.js";
 import Header from "./components/Header.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 
@@ -42,6 +42,7 @@ export default function App() {
     } catch {
       // Ignoré
     }
+    clearClientSession();
     setUser(null);
     setPendingParentStep2(false);
     await checkSession();

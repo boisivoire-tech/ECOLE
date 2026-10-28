@@ -6,8 +6,10 @@ import {
   generateOtpCode,
   hashSecret,
   normalizeOtpCode,
+  signSessionId,
   verifyCsrfToken,
   verifySecret,
+  verifySignedSessionToken,
 } from "../server/utils/crypto.js";
 import {
   formatDateIso,
@@ -50,6 +52,17 @@ test("Jeton CSRF : génération et comparaison en temps constant", () => {
   assert.equal(verifyCsrfToken(token, token), true);
   assert.equal(verifyCsrfToken("autre", token), false);
   assert.equal(verifyCsrfToken(null, token), false);
+});
+
+test("Jeton de session signé HMAC-SHA256 : signature et rejet de toute falsification", () => {
+  const secret = "secret_de_test_tres_long_pour_hmac_sha256_ecole_2026";
+  const signed = signSessionId("sid_abc123_xyz", secret);
+  assert.ok(signed.startsWith("s:sid_abc123_xyz."));
+  assert.equal(verifySignedSessionToken(signed, secret), true);
+  assert.equal(verifySignedSessionToken(`${signed}x`, secret), false);
+  assert.equal(verifySignedSessionToken(signed.replace("abc123", "pirate"), secret), false);
+  assert.equal(verifySignedSessionToken(signed, "mauvais_secret_different_2026_xxxx"), false);
+  assert.equal(verifySignedSessionToken("non_signe", secret), false);
 });
 
 test("Validation des notes, coefficients, dates et noms accentués/apostrophes mobiles", () => {

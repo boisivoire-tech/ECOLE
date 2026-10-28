@@ -5,6 +5,7 @@
   "description": "Portail scolaire en français — Gestion et consultation sécurisée des notes et moyennes",
   "type": "module",
   "scripts": {
+    "setup": "node scripts/setup.js",
     "dev": "node scripts/dev.js",
     "dev:server": "node --watch server/index.js",
     "dev:client": "vite",

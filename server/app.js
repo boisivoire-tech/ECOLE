@@ -6,6 +6,7 @@ import express from "express";
 import session from "express-session";
 
 import { PrismaSessionStore } from "./utils/sessionStore.js";
+import { signSessionId, verifySignedSessionToken } from "./utils/crypto.js";
 import { csrfProtection } from "./middleware/auth.js";
 import { AppError } from "./utils/validation.js";
 import { logError, requestLogger } from "./utils/logger.js";
@@ -31,15 +32,14 @@ export function createApp() {
   }
 
   const isProduction = process.env.NODE_ENV === "production";
+  const allowHeaderSession =
+    !isProduction || process.env.ALLOW_HEADER_SESSION === "true";
   const sessionHours = Math.max(1, Number(process.env.SESSION_DURATION_HOURS) || 8);
   const sessionTtlMs = sessionHours * 60 * 60 * 1000;
 
   const app = express();
   app.disable("x-powered-by");
-
-  if (isProduction) {
-    app.set("trust proxy", 1);
-  }
+  app.set("trust proxy", 1);
 
   // En-têtes de sécurité HTTP
   app.use((req, res, next) => {
@@ -59,6 +59,28 @@ export function createApp() {
   app.use(requestLogger);
   app.use(express.json({ limit: "256kb" }));
 
+  // En aperçu intégré (iframe inter-domaine où le navigateur bloque les cookies tiers),
+  // accepte un jeton de session signé par HMAC-SHA256 (SESSION_SECRET) en relais du cookie.
+  if (allowHeaderSession) {
+    app.use((req, _res, next) => {
+      const cookieHeader = req.headers.cookie || "";
+      const hasSessionCookie = cookieHeader
+        .split(";")
+        .some((part) => part.trim().startsWith("portail_scolaire.sid="));
+
+      const headerToken = req.headers["x-session-token"];
+      if (
+        !hasSessionCookie &&
+        typeof headerToken === "string" &&
+        verifySignedSessionToken(headerToken, sessionSecret)
+      ) {
+        const injected = `portail_scolaire.sid=${encodeURIComponent(headerToken)}`;
+        req.headers.cookie = cookieHeader ? `${cookieHeader}; ${injected}` : injected;
+      }
+      next();
+    });
+  }
+
   // Sessions sécurisées stockées dans PostgreSQL via Prisma
   app.use(
     session({
@@ -68,6 +90,7 @@ export function createApp() {
       resave: false,
       saveUninitialized: false,
       rolling: true,
+      proxy: true,
       cookie: {
         httpOnly: true,
         sameSite: "lax",
@@ -76,6 +99,28 @@ export function createApp() {
       },
     })
   );
+
+  // Synchronise le jeton de session signé sur les réponses JSON en mode développement/aperçu
+  if (allowHeaderSession) {
+    app.use("/api", (req, res, next) => {
+      const originalJson = res.json.bind(res);
+      res.json = (body) => {
+        if (!req.session) {
+          res.setHeader("X-Session-Token", "none");
+        } else if (
+          req.sessionID &&
+          (req.session.csrfToken || req.session.userId || req.session.parentChallenge)
+        ) {
+          const signed = signSessionId(req.sessionID, sessionSecret);
+          if (signed) {
+            res.setHeader("X-Session-Token", signed);
+          }
+        }
+        return originalJson(body);
+      };
+      next();
+    });
+  }
 
   // Protection CSRF sur toutes les routes de l'API
   app.use("/api", csrfProtection);
